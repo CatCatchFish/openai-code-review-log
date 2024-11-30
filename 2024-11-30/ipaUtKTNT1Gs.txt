@@ -1,0 +1,72 @@
+### 代码评审
+
+#### `.github/workflows/main-maven-jar.yml`
+
+**变更点：**
+1. `push` 和 `pull_request` 的分支限制从 `'*'` 改为 `master`。
+2. 添加了环境变量 `GITHUB_TOKEN`。
+
+**评审意见：**
+1. **分支限制变更**：将触发条件从任意分支改为仅 `master` 分支，这有助于减少不必要的构建和评审操作，集中资源处理主分支的变更。建议确认是否所有相关开发流程都已调整以适应这一变化。
+2. **环境变量添加**：添加 `GITHUB_TOKEN` 环境变量是必要的，用于后续的 Git 操作。建议确保该 token 具有适当的权限，且安全措施到位。
+
+#### `openai-code-review-sdk/src/main/java/cn/cat/middleware/sdk/OpenAiCodeReview.java`
+
+**变更点：**
+1. 导入了新的包 `org.eclipse.jgit.*`。
+2. 主方法中增加了对 `GITHUB_TOKEN` 的检查。
+3. 新增了 `writeLog` 方法用于将评审日志写入 Git 仓库。
+4. 新增了 `generateRandomString` 方法用于生成随机字符串。
+
+**评审意见：**
+1. **包导入**：新增的 JGit 相关包用于处理 Git 操作，符合功能需求。建议在项目依赖中添加对应的 JGit 依赖。
+2. **`GITHUB_TOKEN` 检查**：在主方法中检查 `GITHUB_TOKEN` 是必要的，但建议增加更详细的错误处理，例如日志记录或更具体的异常信息。
+3. **`writeLog` 方法**：
+   - **代码克隆**：使用 JGit 克隆仓库，逻辑清晰，但建议处理可能的异常，如网络问题或认证失败。
+   - **文件生成与写入**：逻辑合理，但建议对文件操作进行异常处理，确保文件写入成功。
+   - **Git 操作**：添加、提交和推送操作符合预期，但建议对每个操作进行异常处理，确保操作成功。
+   - **返回值**：返回日志文件的 URL，便于追踪和查看，建议确认 URL 格式的正确性。
+4. **`generateRandomString` 方法**：用于生成随机文件名，逻辑合理。建议确认生成的字符串长度是否满足需求，并考虑是否有更高效的实现方式。
+
+**总体建议：**
+- **异常处理**：增强代码的健壮性，对所有可能出现的异常情况进行处理。
+- **日志记录**：增加详细的日志记录，便于问题排查和追踪。
+- **安全考虑**：确保 `GITHUB_TOKEN` 的使用安全，避免泄露。
+- **代码注释**：增加必要的代码注释，提高代码可读性。
+
+**示例改进：**
+
+```java
+private static String writeLog(String token, String log) throws Exception {
+    try (Git git = Git.cloneRepository()
+            .setURI("https://github.com/CatCatchFish/openai-code-review-log.git")
+            .setDirectory(new File("repo"))
+            .setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, ""))
+            .call()) {
+        
+        String dateFolderName = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
+        File dateFolder = new File("repo/" + dateFolderName);
+        if (!dateFolder.exists() && !dateFolder.mkdirs()) {
+            throw new IOException("Failed to create directory: " + dateFolder);
+        }
+
+        String fileName = generateRandomString(12) + ".txt";
+        File newFile = new File(dateFolder, fileName);
+        try (FileWriter writer = new FileWriter(newFile)) {
+            writer.write(log);
+        }
+
+        git.add().addFilepattern(dateFolderName + "/" + fileName).call();
+        git.commit().setMessage("Add new file via GitHub Actions").call();
+        git.push().setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, "")).call();
+
+        return "https://github.com/CatCatchFish/openai-code-review-log/blob/master/" + dateFolderName + "/" + fileName;
+    } catch (Exception e) {
+        // Log the exception with a detailed message
+        System.err.println("Error writing log to Git repository: " + e.getMessage());
+        throw e;
+    }
+}
+```
+
+通过上述改进，代码的健壮性和可维护性将得到提升。
